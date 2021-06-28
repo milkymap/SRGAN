@@ -1,4 +1,5 @@
-import click 
+import click
+from loguru import logger
 
 import torch as th 
 import torch.nn as nn 
@@ -18,12 +19,12 @@ from dataset import ImageDataset
 from modelization.discriminator import Discriminator
 from modelization.generator import Generator
 
-def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size):
+def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server_config):
     worker_rank = node_idx + gpu_idx
     td.init_process_group(
-        backned='nccl',
+        backend='nccl',
         init_method=server_config, 
-        wolrd_size=wolrd_size,
+        world_size=world_size,
         rank=worker_rank
     )
 
@@ -46,7 +47,7 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size):
     vgg16_FE = DDP(vgg16_FE, device_ids=[gpu_idx])
 
     source = ImageDataset(source_path, (256, 256))
-    picker = DSP(ImageDataset, num_replicas=wolrd_size, rank=worker_rank) 
+    picker = DSP(ImageDataset, num_replicas=world_size, rank=worker_rank) 
     loader = DTL(dataset=source, shuffle=False, batch_size=bt_size, sampler=picker)
     
     msg_fmt = '(%03d) [%03d/%03d]:%05d | ED => %07.3f | EG => %07.3f'
@@ -104,10 +105,10 @@ def main_loop(nb_nodes, nb_gpus, current_rank, nb_epochs, bt_size, server_config
         mp.spawn(
             train, 
             nprocs=nb_gpus,
-            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, nb_epochs, bt_size, server_config)
+            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, '../img_align_celaba' ,nb_epochs, bt_size, server_config)
         )
     else:
         logger.debug('No GPU was detected ...!')
 
 if __name__ == '__main__':
-    train()
+    main_loop()
