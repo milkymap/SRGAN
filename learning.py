@@ -37,8 +37,8 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
     D = Discriminator(in_channels=3, nb_channels=64, nb_blocks=8, nb_neurons_on_dense=1024).cuda(gpu_idx)
     D = DDP(D, device_ids=[gpu_idx])
 
-    optim_G = optim.Adam(params=G.parameters(), lr=0.001, betas=(0.5, 0.9))
-    optim_D = optim.Adam(params=D.parameters(), lr=0.001, betas=(0.5, 0.9))
+    optim_G = optim.Adam(params=G.parameters(), lr=0.0002, betas=(0.5, 0.999))
+    optim_D = optim.Adam(params=D.parameters(), lr=0.0002, betas=(0.5, 0.999))
     mse_criterion = nn.MSELoss().cuda(gpu_idx)
     adv_criterion = nn.BCELoss().cuda(gpu_idx)
     
@@ -47,7 +47,8 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
     vgg16_FE = DDP(vgg16_FE, device_ids=[gpu_idx])
 
     source = ImageDataset(source_path, (256, 256))
-    picker = DSP(ImageDataset, num_replicas=world_size, rank=worker_rank) 
+    print(len(source))
+    picker = DSP(dataset=source, num_replicas=world_size, rank=worker_rank) 
     loader = DTL(dataset=source, shuffle=False, batch_size=bt_size, sampler=picker)
     
     msg_fmt = '(%03d) [%03d/%03d]:%05d | ED => %07.3f | EG => %07.3f'
@@ -105,7 +106,7 @@ def main_loop(nb_nodes, nb_gpus, current_rank, nb_epochs, bt_size, server_config
         mp.spawn(
             train, 
             nprocs=nb_gpus,
-            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, '../img_align_celaba' ,nb_epochs, bt_size, server_config)
+            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, '../img_align_celeba' ,nb_epochs, bt_size, server_config)
         )
     else:
         logger.debug('No GPU was detected ...!')
