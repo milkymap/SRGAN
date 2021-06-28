@@ -32,10 +32,10 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
     th.cuda.set_device(gpu_idx)
 
     G = Generator(nb_blocks=8, nb_channels=64, scale_factor=4).cuda(gpu_idx)
-    G = DDP(G, device_ids=[gpu_idx])
+    G = DDP(model=G, device_ids=[gpu_idx], broadcast_buffers=False)
 
     D = Discriminator(in_channels=3, nb_channels=64, nb_blocks=8, nb_neurons_on_dense=1024).cuda(gpu_idx)
-    D = DDP(D, device_ids=[gpu_idx])
+    D = DDP(model=D, device_ids=[gpu_idx], broadcast_buffers=False)
 
     optim_G = optim.Adam(params=G.parameters(), lr=0.0002, betas=(0.5, 0.999))
     optim_D = optim.Adam(params=D.parameters(), lr=0.0002, betas=(0.5, 0.999))
@@ -44,10 +44,9 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
     
     vgg = vgg16(pretrained=True)
     vgg16_FE = nn.Sequential(*list(vgg.features)).eval().cuda(gpu_idx)
-    vgg16_FE = DDP(vgg16_FE, device_ids=[gpu_idx])
+    vgg16_FE = DDP(vgg16_FE, device_ids=[gpu_idx], broadcast_buffers=False)
 
     source = ImageDataset(source_path, (256, 256))
-    print(len(source))
     picker = DSP(dataset=source, num_replicas=world_size, rank=worker_rank) 
     loader = DTL(dataset=source, shuffle=False, batch_size=bt_size, sampler=picker)
     
@@ -64,6 +63,7 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
             FL = th.zeros(I_LR.shape[0]).float().cuda(gpu_idx)
 
             # train generator 
+            optim_G.zero_grad()
             I_SR = G(I_LR)
             I_SR_FE = vgg16_FE(I_SR)
             I_HR_FE = vgg16_FE(I_HR)
@@ -71,17 +71,14 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
             L_adv = adv_criterion(D(I_SR), RL)
             L_mse = mse_criterion(I_SR, I_HR)
             L_gen = L_mse + 0.006 * L_vgg + 0.001 * L_adv
-            
-            optim_G.zero_grad()
             L_gen.backward()
             optim_G.step()
 
             # train discriminator
+            optim_D.zero_grad()
             E_D_IHR = adv_criterion(D(I_HR), RL)
             E_D_ISR = adv_criterion(D(I_SR.detach()), FL)
             E_dis = (E_D_IHR + E_D_ISR) / 2 
-
-            optim_D.zero_grad()
             E_dis.backward()
             optim_D.step()
 
@@ -96,17 +93,18 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
 @click.option('--nb_nodes', help='number of nodes', type=int)
 @click.option('--nb_gpus', help='number of gpus core per nodes', type=int)
 @click.option('--current_rank', help='rank of current node', type=int)
+@click.option('--source_path', help='path to source data', type=str)
 @click.option('--nb_epochs', help='number of epochs during training', type=int)
 @click.option('--bt_size', help='size of batched data', type=int)
 @click.option('--server_config', help='tcp://address:port', type=str)
-def main_loop(nb_nodes, nb_gpus, current_rank, nb_epochs, bt_size, server_config):
+def main_loop(nb_nodes, nb_gpus, current_rank, source_path, nb_epochs, bt_size, server_config):
     if th.cuda.is_available():
         logger.debug('The training mode will be on GPU')
         logger.debug(f'{th.cuda.device_count()} were detected ...!')
         mp.spawn(
             train, 
             nprocs=nb_gpus,
-            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, '../img_align_celeba' ,nb_epochs, bt_size, server_config)
+            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, source_path, nb_epochs, bt_size, server_config)
         )
     else:
         logger.debug('No GPU was detected ...!')
