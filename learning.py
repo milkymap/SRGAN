@@ -18,6 +18,7 @@ from torch.utils.data.distributed import DistributedSampler as DSP
 from dataset import ImageDataset
 from modelization.discriminator import Discriminator
 from modelization.generator import Generator
+from libraries.strategies import * 
 
 def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server_config):
     worker_rank = node_idx + gpu_idx
@@ -27,6 +28,7 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
         world_size=world_size,
         rank=worker_rank
     )
+
 
     th.manual_seed(0)
     th.cuda.set_device(gpu_idx)
@@ -83,6 +85,11 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
             optim_D.step()
 
             print(msg_fmt % (gpu_idx, epoch_counter, nb_epochs, iteration, E_dis.item(), L_gen.item()))
+            if iteration % 100 == 0 and gpu_idx == 0:
+                I_SR = I_SR.cpu()
+                I_SR = th2cv(to_grid(I_SR, nb_rows=1))
+                pickle.dump(I_SR, open(f'img_{iteration:05d}.pkl', 'wb'))
+
     
     if gpu_idx == 0:
         logger.debug(' ... end training ... ')
