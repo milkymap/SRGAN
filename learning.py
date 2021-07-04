@@ -1,4 +1,5 @@
 import click
+import cv2
 from loguru import logger
 
 import torch as th 
@@ -9,7 +10,7 @@ from torch.utils.data import DataLoader
 from torchvision.models import vgg16
 
 import torch.distributed as td 
-import torch.multiprocessing as mp 
+import torch.multiprocessing as tm 
 
 from torch.utils.data import DataLoader as DTL 
 from torch.nn.parallel import DistributedDataParallel as DDP 
@@ -29,15 +30,14 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
         rank=worker_rank
     )
 
-
     th.manual_seed(0)
     th.cuda.set_device(gpu_idx)
 
     G = Generator(nb_blocks=8, nb_channels=64, scale_factor=4).cuda(gpu_idx)
-    G = DDP(model=G, device_ids=[gpu_idx], broadcast_buffers=False)
+    G = DDP(module=G, device_ids=[gpu_idx], broadcast_buffers=False)
 
     D = Discriminator(in_channels=3, nb_channels=64, nb_blocks=8, nb_neurons_on_dense=1024).cuda(gpu_idx)
-    D = DDP(model=D, device_ids=[gpu_idx], broadcast_buffers=False)
+    D = DDP(module=D, device_ids=[gpu_idx], broadcast_buffers=False)
 
     optim_G = optim.Adam(params=G.parameters(), lr=0.0002, betas=(0.5, 0.999))
     optim_D = optim.Adam(params=D.parameters(), lr=0.0002, betas=(0.5, 0.999))
@@ -69,10 +69,10 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
             I_SR = G(I_LR)
             I_SR_FE = vgg16_FE(I_SR)
             I_HR_FE = vgg16_FE(I_HR)
+            L_pix = mse_criterion(I_SR, I_HR)
             L_vgg = mse_criterion(I_SR_FE, I_HR_FE)
             L_adv = adv_criterion(D(I_SR), RL)
-            L_mse = mse_criterion(I_SR, I_HR)
-            L_gen = L_mse + 0.006 * L_vgg + 0.001 * L_adv
+            L_gen = L_vgg + 0.005 * L_pix + 0.01 * L_adv
             L_gen.backward()
             optim_G.step()
 
@@ -80,15 +80,22 @@ def train(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server
             optim_D.zero_grad()
             E_D_IHR = adv_criterion(D(I_HR), RL)
             E_D_ISR = adv_criterion(D(I_SR.detach()), FL)
-            E_dis = (E_D_IHR + E_D_ISR) / 2 
+            E_dis = (E_D_IHR + E_D_ISR) * 0.5
             E_dis.backward()
             optim_D.step()
 
             print(msg_fmt % (gpu_idx, epoch_counter, nb_epochs, iteration, E_dis.item(), L_gen.item()))
-            if iteration % 100 == 0 and gpu_idx == 0:
+            if iteration % 200 == 0 and gpu_idx == 0:
+                logger.debug('An image was saved...!')
+                I_HR = I_HR.cpu()
+                I_LR = I_LR.cpu()
                 I_SR = I_SR.cpu()
-                I_SR = th2cv(to_grid(I_SR, nb_rows=1))
-                pickle.dump(I_SR, open(f'img_{iteration:05d}.pkl', 'wb'))
+                I_LR = to_grid(nn.functional.interpolate(I_LR, scale_factor=4), nb_rows=1)
+                I_SR = to_grid(I_SR, nb_rows=1)
+                I_HR = to_grid(I_HR, nb_rows=1)
+                I_LS = th2cv(th.cat((I_LR, I_SR, I_HR), -1)) * 255
+                cv2.imwrite(f'storage/img_{epoch_counter:02d}_{iteration:03d}.jpg', I_LS)
+        epoch_counter += 1
 
     
     if gpu_idx == 0:
@@ -108,7 +115,7 @@ def main_loop(nb_nodes, nb_gpus, current_rank, source_path, nb_epochs, bt_size, 
     if th.cuda.is_available():
         logger.debug('The training mode will be on GPU')
         logger.debug(f'{th.cuda.device_count()} were detected ...!')
-        mp.spawn(
+        tm.spawn(
             train, 
             nprocs=nb_gpus,
             args=(current_rank * nb_gpus, nb_nodes * nb_gpus, source_path, nb_epochs, bt_size, server_config)
