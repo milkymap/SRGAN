@@ -1,47 +1,31 @@
 import glob
-import random
-import os
-import numpy as np
+import torch as th 
 
-import torch
+from libraries.strategies import read_image
+from torchvision import transforms as T 
 from torch.utils.data import Dataset
-from PIL import Image
-import torchvision.transforms as transforms
-
 from os import path 
 
-# Normalization parameters for pre-trained PyTorch models
-mean = np.array([0.485, 0.456, 0.406])
-std = np.array([0.229, 0.224, 0.225])
 
-
-class ImageDataset(Dataset):
-    def __init__(self, root, hr_shape):
-        hr_height, hr_width = hr_shape
-        # Transforms for low resolution images and high resolution images
-        self.lr_transform = transforms.Compose(
-            [
-                transforms.Resize((hr_height // 4, hr_height // 4)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean, std),
-            ]
-        )
-        self.hr_transform = transforms.Compose(
-            [
-                transforms.Resize((hr_height, hr_height)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean, std),
-            ]
-        )
-
+class Source(Dataset):
+    def __init__(self, root, shape):
+        width, height = shape
+        self.lr_resize = T.Resize((width // 4, height // 4))
+        self.hr_resize = T.Resize((width, height))
         self.files = sorted(glob.glob(path.join(root, '*.jpg')))
 
-    def __getitem__(self, index):
-        I = Image.open(self.files[index])
-        I_LR = self.lr_transform(I)
-        I_HR = self.hr_transform(I)
+    def normalize(self, img, is_hr):
+        img = img / th.max(img)
+        if is_hr:
+            return T.Normalize(mean=[0.5], std=[0.5])(img) 
+        return img 
 
-        return I_LR, I_HR  
+    def __getitem__(self, index):
+        I = read_image(self.files[index], by='th')
+        I = I / th.max(I)
+        I_LR = self.lr_resize(I)
+        I_HR = self.hr_resize(I)
+        return self.normalize(I_LR, False), self.normalize(I_HR,True)  
 
     def __len__(self):
         return len(self.files)
