@@ -34,9 +34,6 @@ It contains the :
     * modelization
         * definition of generator structure 
         * definition of discriminator structure
-    * searching
-        * contains the logic of finding nearest neighbors based on knn over 128_features  
-        * apply MBR-SIFT on the output of knn
     * libraries
     	* group a set of functionalies such as
     	* image procesing 
