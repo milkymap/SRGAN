@@ -7,7 +7,7 @@ AdversarialNetwork) based on pytroch
 <p align="center"> 
   <img src="./readme_utils/srgan_structure.png" width="640">
   <h3 align="center">
-    A python script based on knn and mbr-sift for fast image search 
+    A python inplementation of SRGAN based on pytorch 
   </h3>  
 </p>
 
@@ -51,7 +51,7 @@ It contains the :
         * .gitignore
         * requirements.txt 
 
-#results
+# results
 
 <p align="center"> 
   <img src="./readme_utils/gen_res_000.png" width="640">
