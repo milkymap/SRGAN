@@ -54,7 +54,7 @@ It contains the :
 #results
 
 <p align="center"> 
-  <img src="./readme_utils/gen_res_000.jpg" width="640">
+  <img src="./readme_utils/gen_res_000.png" width="640">
   <h3 align="center">
     generator output epoch N°1 
   </h3>  
@@ -93,7 +93,7 @@ It contains the :
 
 # training
 
-## single gpu
+## ...........single gpu...........
 
 ```python
 	python -m learning single-gpu 
@@ -103,8 +103,9 @@ It contains the :
 		--bt_size 4
 		--path_to_dump dump 
 
+```
 
-## multiple gpu
+## ...........multiple gpu...........
 
 ```python
 	python -m learning multiple-gpu 
