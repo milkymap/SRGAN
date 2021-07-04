@@ -3,7 +3,7 @@ This is an implementation of the paper (Photo-Realistic Single Image Super-Resol
 AdversarialNetwork) based on pytroch
 
 
-# mbr-sift-knn-image-similarity
+# super resolution generative adversarial network
 <p align="center"> 
   <img src="./readme_utils/srgan_structure.png" width="640">
   <h3 align="center">
