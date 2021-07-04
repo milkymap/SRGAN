@@ -1,3 +1,4 @@
+import os 
 import click
 import cv2
 from loguru import logger
@@ -21,9 +22,10 @@ from modelization.discriminator import Discriminator
 from modelization.generator import Generator
 from libraries.strategies import * 
 
+from os import path 
 
-def train_0(device, source_path, nb_epochs, bt_size):
-    print(device)
+
+def train_0(device, source_path, nb_epochs, bt_size, path_to_dump):
     G = Generator(nb_blocks=8, nb_channels=64, scale_factor=4).to(device)
     D = Discriminator(in_channels=3, nb_channels=64, nb_blocks=8, nb_neurons_on_dense=1024).to(device)
     
@@ -70,7 +72,7 @@ def train_0(device, source_path, nb_epochs, bt_size):
             E_dis.backward()
             optim_D.step()
 
-            print(msg_fmt % (epoch_counter, nb_epochs, iteration, E_dis.item(), L_gen.item()))
+            logger.debug(msg_fmt % (epoch_counter, nb_epochs, iteration, E_dis.item(), L_gen.item()))
             if iteration % 200 == 0:
                 logger.debug('An image was saved...!')
                 I_HR = I_HR.cpu()
@@ -80,7 +82,7 @@ def train_0(device, source_path, nb_epochs, bt_size):
                 I_SR = to_grid(I_SR, nb_rows=1)
                 I_HR = to_grid(I_HR, nb_rows=1)
                 I_LS = th2cv(th.cat((I_LR, I_SR, I_HR), -1)) * 255
-                cv2.imwrite(f'storage/img_{epoch_counter:02d}_{iteration:03d}.jpg', I_LS)
+                cv2.imwrite(f'{path_to_dump}/img_{epoch_counter:02d}_{iteration:03d}.jpg', I_LS)
         epoch_counter += 1
 
         if epoch_counter % 10 == 0:
@@ -91,7 +93,7 @@ def train_0(device, source_path, nb_epochs, bt_size):
     th.save(D, 'discriminator.pt')
 
 
-def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server_config):
+def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server_config, path_to_dump):
     worker_rank = node_idx + gpu_idx
     td.init_process_group(
         backend='nccl',
@@ -154,7 +156,7 @@ def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, serv
             E_dis.backward()
             optim_D.step()
 
-            print(msg_fmt % (gpu_idx, epoch_counter, nb_epochs, iteration, E_dis.item(), L_gen.item()))
+            logger.debug(msg_fmt % (gpu_idx, epoch_counter, nb_epochs, iteration, E_dis.item(), L_gen.item()))
             if iteration % 200 == 0 and gpu_idx == 0:
                 logger.debug('An image was saved...!')
                 I_HR = I_HR.cpu()
@@ -164,7 +166,7 @@ def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, serv
                 I_SR = to_grid(I_SR, nb_rows=1)
                 I_HR = to_grid(I_HR, nb_rows=1)
                 I_LS = th2cv(th.cat((I_LR, I_SR, I_HR), -1)) * 255
-                cv2.imwrite(f'storage/img_{epoch_counter:02d}_{iteration:03d}.jpg', I_LS)
+                cv2.imwrite(f'{path_to_dump}/img_{epoch_counter:02d}_{iteration:03d}.jpg', I_LS)
         epoch_counter += 1
 
     
@@ -181,15 +183,19 @@ def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, serv
 @click.option('--nb_epochs', help='number of epochs during training', type=int)
 @click.option('--bt_size', help='size of batched data', type=int)
 @click.option('--server_config', help='tcp://address:port', type=str)
+@click.option('--path_to_dump', help='sample images will be stored on dump', type=click.Path(False))
 @click.pass_context
-def multiple_gpu(ctx, nb_nodes, nb_gpus, current_rank, source_path, nb_epochs, bt_size, server_config):
+def multiple_gpu(ctx, nb_nodes, nb_gpus, current_rank, source_path, nb_epochs, bt_size, server_config, path_to_dump):
+    if not path.isdir(path_to_dump):
+        os.mkdir(path_to_dump)
+
     if th.cuda.is_available():
         logger.debug('The training mode will be on GPU')
         logger.debug(f'{th.cuda.device_count()} were detected ...!')
         tm.spawn(
             train, 
             nprocs=nb_gpus,
-            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, source_path, nb_epochs, bt_size, server_config)
+            args=(current_rank * nb_gpus, nb_nodes * nb_gpus, source_path, nb_epochs, bt_size, server_config, path_to_dump)
         )
     else:
         logger.debug('No GPU was detected ...! try to use --single_gpu(with cpu support)')
@@ -200,13 +206,16 @@ def multiple_gpu(ctx, nb_nodes, nb_gpus, current_rank, source_path, nb_epochs, b
 @click.option('--source_path', help='path to source data', type=str)
 @click.option('--nb_epochs', help='number of epochs during training', type=int)
 @click.option('--bt_size', help='size of batched data', type=int)
+@click.option('--path_to_dump', help='sample images will be stored on dump', type=click.Path(False))
 @click.pass_context
-def single_gpu(ctx, gpu_idx, source_path, nb_epochs, bt_size):
+def single_gpu(ctx, gpu_idx, source_path, nb_epochs, bt_size, path_to_dump):
+    if not path.isdir(path_to_dump):
+        os.mkdir(path_to_dump)
     if th.cuda.is_available and th.cuda.device_count() > 0:
         device = th.device(f"cuda:{gpu_idx}") 
     else:
         device = 'cpu'
-    train_0(device, source_path, nb_epochs, bt_size)
+    train_0(device, source_path, nb_epochs, bt_size, path_to_dump)
 
 @click.group(chain=False, invoke_without_command=True)
 @click.pass_context
