@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader as DTL
 from torch.nn.parallel import DistributedDataParallel as DDP 
 from torch.utils.data.distributed import DistributedSampler as DSP  
 
-from dataset import ImageDataset
+from dataset import Source 
 from modelization.discriminator import Discriminator
 from modelization.generator import Generator
 from libraries.strategies import * 
@@ -27,15 +27,15 @@ def train_0(device, source_path, nb_epochs, bt_size):
     G = Generator(nb_blocks=8, nb_channels=64, scale_factor=4).to(device)
     D = Discriminator(in_channels=3, nb_channels=64, nb_blocks=8, nb_neurons_on_dense=1024).to(device)
     
-    optim_G = optim.Adam(params=G.parameters(), lr=0.0002, betas=(0.5, 0.999))
-    optim_D = optim.Adam(params=D.parameters(), lr=0.0002, betas=(0.5, 0.999))
+    optim_G = optim.Adam(params=G.parameters(), lr=0.0004, betas=(0.9, 0.999))
+    optim_D = optim.Adam(params=D.parameters(), lr=0.0004, betas=(0.9, 0.999))
     mse_criterion = nn.MSELoss().to(device)
     adv_criterion = nn.BCELoss().to(device)
     
     vgg = vgg16(pretrained=True)
     vgg16_FE = nn.Sequential(*list(vgg.features)).eval().to(device)
 
-    source = ImageDataset(source_path, (256, 256))
+    source = Source(source_path, (256, 256))
     loader = DTL(dataset=source, shuffle=True, batch_size=bt_size)
     
     msg_fmt = '[%03d/%03d]:%05d | ED => %07.3f | EG => %07.3f'
@@ -56,7 +56,7 @@ def train_0(device, source_path, nb_epochs, bt_size):
             I_SR_FE = vgg16_FE(I_SR)
             I_HR_FE = vgg16_FE(I_HR)
             L_pix = mse_criterion(I_SR, I_HR)
-            L_vgg = mse_criterion(I_SR_FE, I_HR_FE)
+            L_vgg = mse_criterion(I_SR_FE, I_HR_FE.detach())
             L_adv = adv_criterion(D(I_SR), RL)
             L_gen = L_pix + 0.006 * L_vgg + 0.001 * L_adv
             L_gen.backward()
@@ -83,10 +83,12 @@ def train_0(device, source_path, nb_epochs, bt_size):
                 cv2.imwrite(f'storage/img_{epoch_counter:02d}_{iteration:03d}.jpg', I_LS)
         epoch_counter += 1
 
+        if epoch_counter % 10 == 0:
+            th.save(G, f'{epoch_counter:02d}_generator.pt')
     
-        logger.debug(' ... end training ... ')
-        th.save(G, 'generator.pt')
-        th.save(D, 'discriminator.pt')
+    logger.debug(' ... end training ... ')
+    th.save(G, 'generator.pt')
+    th.save(D, 'discriminator.pt')
 
 
 def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, server_config):
@@ -116,7 +118,7 @@ def train_1(gpu_idx, node_idx, world_size, source_path, nb_epochs, bt_size, serv
     vgg16_FE = nn.Sequential(*list(vgg.features)).eval().cuda(gpu_idx)
     vgg16_FE = DDP(vgg16_FE, device_ids=[gpu_idx], broadcast_buffers=False)
 
-    source = ImageDataset(source_path, (256, 256))
+    source = Source(source_path, (256, 256))
     picker = DSP(dataset=source, num_replicas=world_size, rank=worker_rank) 
     loader = DTL(dataset=source, shuffle=False, batch_size=bt_size, sampler=picker)
     
